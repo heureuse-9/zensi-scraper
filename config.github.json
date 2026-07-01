@@ -1,0 +1,18 @@
+{
+  "campaign_name": "Zensi",
+  "start_date": "",
+  "end_date": "",
+  "output_dir": "outputs",
+  "roster_json": "data/creators.zensi.json",
+  "creators_csv": "",
+  "supplemental_analytics_csvs": [],
+  "supplemental_docx": "",
+  "google_sheet_csv_url": "",
+  "scrape_public": true,
+  "verify_instagram": true,
+  "chrome_path": "",
+  "output_stem": "",
+  "export_csv": true,
+  "export_xlsx": true,
+  "export_docx": true
+}

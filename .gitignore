@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+.streamlit/secrets.toml
+config.json
+runs/
+outputs/
+exports/
+*.log
+.ig_verify_cache.json
+*.docx
+*.xlsx
+*.csv
+!README.md
