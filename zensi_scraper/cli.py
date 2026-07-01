@@ -48,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     refresh.add_argument("--config", required=True)
     refresh.add_argument("--snapshot", default="data/latest_snapshot.json")
     refresh.add_argument("--date", help="Override run date, YYYY-MM-DD. Defaults to today.")
-    refresh.add_argument("--lookback-days", type=int, default=7)
+    refresh.add_argument("--lookback-days", type=int, default=14)
     refresh.add_argument("--no-instagram-verify", action="store_true")
 
     init = sub.add_parser("init-config", help="Write a starter config file.")

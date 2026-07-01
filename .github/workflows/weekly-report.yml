@@ -3,8 +3,8 @@ name: Recurring Zensi Creator Analytics
 on:
   workflow_dispatch:
   schedule:
-    # Refresh the Streamlit snapshot every 6 hours.
-    - cron: "17 */6 * * *"
+    # Refresh and verify the Streamlit snapshot every 2 hours.
+    - cron: "17 */2 * * *"
     # Friday reporting run. 12:47 UTC is 8:47 AM US Eastern during daylight saving time.
     - cron: "47 12 * * 5"
 
@@ -27,7 +27,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Refresh latest Streamlit snapshot
-        run: python -m zensi_scraper refresh-cache --config config.github.json --snapshot data/latest_snapshot.json
+        run: python -m zensi_scraper refresh-cache --config config.github.json --snapshot data/latest_snapshot.json --lookback-days 14
 
       - name: Commit latest snapshot
         run: |
