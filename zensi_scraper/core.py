@@ -39,6 +39,13 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
+METRIC_FIELDS = ["views", "likes", "comments", "saves", "shares"]
+PLATFORM_REQUIRED_METRICS = {
+    "Instagram": ["views", "likes", "comments"],
+    "TikTok": ["views", "likes", "comments", "saves", "shares"],
+    "YouTube": ["views", "likes", "comments"],
+}
+
 IG_HEADERS = {
     **HEADERS,
     "X-IG-App-ID": "936619743392459",
@@ -164,6 +171,98 @@ def safe_div(a: float | int | None, b: float | int | None) -> float | None:
     if a is None or b is None or b == 0:
         return None
     return a / b
+
+
+def utc_stamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def split_csvish(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(v) for v in value if str(v or "").strip()]
+    return [p.strip() for p in str(value or "").split(",") if p.strip()]
+
+
+def add_unique_csvish(existing: Any, value: str) -> str:
+    values = split_csvish(existing)
+    if value and value not in values:
+        values.append(value)
+    return ", ".join(values)
+
+
+def required_metrics_for(post: dict[str, Any]) -> list[str]:
+    return PLATFORM_REQUIRED_METRICS.get(post.get("platform"), ["views", "likes", "comments"])
+
+
+def refresh_integrity_status(post: dict[str, Any]) -> None:
+    verified = set(split_csvish(post.get("verified_metrics")))
+    required = required_metrics_for(post)
+    missing = [field for field in required if field not in verified]
+    if not verified:
+        status = "unverified"
+    elif missing:
+        status = "partial"
+    else:
+        status = "verified"
+    notes = []
+    if missing:
+        notes.append("Missing verified metrics: " + ", ".join(missing))
+    if post.get("_integrity_errors"):
+        notes.extend(split_csvish(post.get("_integrity_errors")))
+    if post.get("_integrity_deltas"):
+        notes.extend(split_csvish(post.get("_integrity_deltas")))
+    post["verification_status"] = status
+    post["integrity_notes"] = "; ".join(notes) if notes else "All required metrics verified from public sources."
+
+
+def apply_metric_record(post: dict[str, Any], record: dict[str, Any]) -> dict[str, Any]:
+    source = record.get("source") or "unknown_public_source"
+    post["metric_sources"] = add_unique_csvish(post.get("metric_sources"), source)
+    post["verified_at"] = record.get("verified_at") or utc_stamp()
+    if record.get("source_url"):
+        post["source_url"] = record["source_url"]
+    for field in ["title", "handle", "post_id", "url", "date"]:
+        value = record.get(field)
+        if value not in [None, "", "N/A"]:
+            post[field] = value
+    verified = set(split_csvish(post.get("verified_metrics")))
+    deltas = split_csvish(post.get("_integrity_deltas"))
+    for field in METRIC_FIELDS:
+        if field not in record:
+            continue
+        value = record.get(field)
+        if value is None or value == "":
+            continue
+        previous = post.get(field)
+        if previous not in [None, "", "N/A"] and previous != value:
+            try:
+                old_num = float(previous)
+                new_num = float(value)
+                if abs(new_num - old_num) > max(10, old_num * 0.05):
+                    deltas.append(f"{field} changed {fmt_num(previous)} -> {fmt_num(value)} via {source}")
+            except (TypeError, ValueError):
+                pass
+        post[field] = value
+        verified.add(field)
+    post["verified_metrics"] = ", ".join(sorted(verified))
+    post["_integrity_deltas"] = ", ".join(dict.fromkeys(deltas))
+    refresh_integrity_status(post)
+    return post
+
+
+def build_integrity_report(posts: list[dict[str, Any]]) -> dict[str, Any]:
+    statuses = defaultdict(int)
+    platforms: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for post in posts:
+        status = post.get("verification_status") or "unverified"
+        platform = post.get("platform") or "Unknown"
+        statuses[status] += 1
+        platforms[platform][status] += 1
+    return {
+        "total_posts": len(posts),
+        "statuses": dict(statuses),
+        "platforms": {platform: dict(counts) for platform, counts in platforms.items()},
+    }
 
 
 def normalize_platform(value: str) -> str:
@@ -579,25 +678,34 @@ def scrape_instagram_posts(creator: str, handle: str, start: date, end: date, ch
                 continue
             caption = ((item.get("caption") or {}).get("text") or "")
             views = item.get("play_count") or item.get("video_view_count") or item.get("view_count") or 0
-            posts.append(
+            post = {
+                "creator": creator,
+                "platform": "Instagram",
+                "handle": handle,
+                "date": published,
+                "post_type": "Reel",
+                "post_id": code,
+                "title": clean_text(caption or code, 220),
+                "views": None,
+                "likes": None,
+                "comments": None,
+                "saves": None,
+                "shares": None,
+                "category": category_for(caption),
+                "url": post_url("Instagram", handle, code),
+                "_source": "instagram_public_feed",
+            }
+            apply_metric_record(
+                post,
                 {
-                    "creator": creator,
-                    "platform": "Instagram",
-                    "handle": handle,
-                    "date": published,
-                    "post_type": "Reel",
-                    "post_id": code,
-                    "title": clean_text(caption or code, 220),
+                    "source": "instagram_public_feed",
+                    "source_url": post["url"],
                     "views": views,
                     "likes": item.get("like_count") or 0,
                     "comments": item.get("comment_count") or 0,
-                    "saves": None,
-                    "shares": None,
-                    "category": category_for(caption),
-                    "url": post_url("Instagram", handle, code),
-                    "_source": "instagram_public_feed",
-                }
+                },
             )
+            posts.append(post)
         max_id = data.get("next_max_id")
         if not max_id:
             break
@@ -646,25 +754,36 @@ def scrape_tiktok(creator: str, handle: str, start: date, end: date) -> tuple[di
             if not (start <= published <= end):
                 continue
             title = clean_text(item.get("title") or item.get("desc") or pid, 220)
-            posts.append(
+            post = {
+                "creator": creator,
+                "platform": "TikTok",
+                "handle": handle,
+                "date": published,
+                "post_type": "Video",
+                "post_id": pid,
+                "title": title,
+                "views": None,
+                "likes": None,
+                "comments": None,
+                "saves": None,
+                "shares": None,
+                "category": category_for(title),
+                "url": post_url("TikTok", handle, pid),
+                "_source": "tikwm_public_api",
+            }
+            apply_metric_record(
+                post,
                 {
-                    "creator": creator,
-                    "platform": "TikTok",
-                    "handle": handle,
-                    "date": published,
-                    "post_type": "Video",
-                    "post_id": pid,
-                    "title": title,
+                    "source": "tikwm_public_api",
+                    "source_url": post["url"],
                     "views": item.get("play_count") or item.get("playCount") or 0,
                     "likes": item.get("digg_count") or item.get("diggCount") or 0,
                     "comments": item.get("comment_count") or item.get("commentCount") or 0,
                     "saves": item.get("collect_count") or item.get("collectCount") or 0,
                     "shares": item.get("share_count") or item.get("shareCount") or 0,
-                    "category": category_for(title),
-                    "url": post_url("TikTok", handle, pid),
-                    "_source": "tikwm_public_api",
-                }
+                },
             )
+            posts.append(post)
         cursor = str(data.get("cursor") or data.get("maxCursor") or "")
         if not cursor:
             break
@@ -697,12 +816,80 @@ def resolve_youtube_channel(handle: str) -> dict[str, Any]:
     return profile
 
 
-def fetch_youtube_video_stats(video_id: str) -> dict[str, Any]:
+def metrics_from_ytdlp_info(platform: str, info: dict[str, Any]) -> dict[str, Any]:
+    upload_date = info.get("upload_date")
+    published = None
+    if upload_date and re.match(r"^\d{8}$", str(upload_date)):
+        try:
+            published = datetime.strptime(str(upload_date), "%Y%m%d").date()
+        except ValueError:
+            published = None
+    elif info.get("timestamp"):
+        try:
+            published = datetime.fromtimestamp(int(info["timestamp"]), tz=timezone.utc).date()
+        except Exception:
+            published = None
+    handle = (info.get("uploader_id") or info.get("channel_id") or "").strip().lstrip("@")
+    record = {
+        "source": "yt_dlp_public_page",
+        "source_url": info.get("webpage_url"),
+        "post_id": info.get("id"),
+        "title": clean_text(info.get("title"), 220),
+        "handle": handle,
+        "date": published,
+        "views": info.get("view_count"),
+        "likes": info.get("like_count"),
+        "comments": info.get("comment_count"),
+    }
+    if platform == "TikTok":
+        record["shares"] = info.get("repost_count") or info.get("share_count")
+    return {k: v for k, v in record.items() if v not in ["", "N/A"]}
+
+
+def fetch_ytdlp_post_metrics(url: str, platform: str) -> dict[str, Any]:
     try:
-        text = requests.get(f"https://www.youtube.com/shorts/{video_id}", headers=HEADERS, timeout=20).text
+        from yt_dlp import YoutubeDL
+    except Exception as exc:
+        return {"source": "yt_dlp_public_page", "error": f"yt-dlp unavailable: {exc}"}
+
+    class QuietLogger:
+        def debug(self, msg):
+            pass
+
+        def warning(self, msg):
+            pass
+
+        def error(self, msg):
+            pass
+
+    options = {
+        "quiet": True,
+        "no_warnings": True,
+        "logger": QuietLogger(),
+        "skip_download": True,
+        "extract_flat": False,
+        "noplaylist": True,
+        "socket_timeout": 25,
+        "retries": 2,
+    }
+    try:
+        with YoutubeDL(options) as ydl:
+            info = ydl.extract_info(url, download=False)
+        return metrics_from_ytdlp_info(platform, info or {})
+    except Exception as exc:
+        return {"source": "yt_dlp_public_page", "source_url": url, "error": clean_text(str(exc), 220)}
+
+
+def fetch_youtube_video_stats(video_id: str) -> dict[str, Any]:
+    url = post_url("YouTube", "", video_id)
+    ytdlp_stats = fetch_ytdlp_post_metrics(url, "YouTube")
+    if any(ytdlp_stats.get(field) is not None for field in ["views", "likes", "comments"]):
+        return ytdlp_stats
+    try:
+        text = requests.get(url, headers=HEADERS, timeout=20).text
     except Exception:
-        return {}
-    stats = {}
+        return {"source": "youtube_public_page_fallback", "source_url": url}
+    stats = {"source": "youtube_public_page_fallback", "source_url": url}
     view_match = re.search(r'"viewCount":"(\d+)"', text) or re.search(r'"views":\{"simpleText":"([\d,.KMkm]+)\s+views?"', text)
     like_match = re.search(r'"likeCount":\s*"?(\d+)"?', text)
     if view_match:
@@ -735,25 +922,26 @@ def scrape_youtube(creator: str, handle: str, start: date, end: date) -> tuple[d
         if not (start <= published <= end):
             continue
         stats = fetch_youtube_video_stats(vid)
-        posts.append(
-            {
-                "creator": creator,
-                "platform": "YouTube",
-                "handle": handle,
-                "date": published,
-                "post_type": "Short",
-                "post_id": vid,
-                "title": title,
-                "views": stats.get("views", 0),
-                "likes": stats.get("likes", 0),
-                "comments": None,
-                "saves": None,
-                "shares": None,
-                "category": category_for(title),
-                "url": post_url("YouTube", handle, vid),
-                "_source": "youtube_rss_public_page",
-            }
-        )
+        post = {
+            "creator": creator,
+            "platform": "YouTube",
+            "handle": handle,
+            "date": published,
+            "post_type": "Short",
+            "post_id": vid,
+            "title": title,
+            "views": None,
+            "likes": None,
+            "comments": None,
+            "saves": None,
+            "shares": None,
+            "category": category_for(title),
+            "url": post_url("YouTube", handle, vid),
+            "_source": "youtube_rss_public_page",
+            "metric_sources": "youtube_rss_public_page",
+        }
+        apply_metric_record(post, {**stats, "source_url": post["url"]})
+        posts.append(post)
     return profile, posts
 
 
@@ -880,6 +1068,9 @@ def verify_instagram_posts(posts: list[dict[str, Any]], chrome_path: str | None 
             continue
         key = post.get("post_id") or post.get("url")
         record = cache.get(key) or {}
+        if record:
+            record.setdefault("source", "instagram_oembed_page_meta")
+            record.setdefault("source_url", post.get("url"))
         for field in ["title", "handle", "likes", "comments", "date"]:
             if field in record and record[field] not in [None, ""]:
                 value = record[field]
@@ -888,15 +1079,61 @@ def verify_instagram_posts(posts: list[dict[str, Any]], chrome_path: str | None 
                 if post.get(field) != value:
                     refreshed += 1
                     post[field] = value
+        if record:
+            apply_metric_record(post, record)
     if cache_path:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps(cache, default=str, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"checked": checked, "refreshed_fields": refreshed}
 
 
+def verify_ytdlp_posts(posts: list[dict[str, Any]]) -> dict[str, int]:
+    targets = [post for post in posts if post.get("platform") in {"TikTok", "YouTube"} and post.get("url")]
+    checked = 0
+    refreshed = 0
+    if not targets:
+        return {"checked": 0, "refreshed_fields": 0}
+
+    def fetch(post):
+        return post, fetch_ytdlp_post_metrics(post["url"], post["platform"])
+
+    with ThreadPoolExecutor(max_workers=min(4, len(targets))) as executor:
+        futures = [executor.submit(fetch, post) for post in targets]
+        for future in as_completed(futures):
+            post, record = future.result()
+            checked += 1
+            before = {field: post.get(field) for field in METRIC_FIELDS}
+            if record.get("error"):
+                post["metric_sources"] = add_unique_csvish(post.get("metric_sources"), record.get("source", "yt_dlp_public_page"))
+                post["_integrity_errors"] = add_unique_csvish(post.get("_integrity_errors"), record["error"])
+                refresh_integrity_status(post)
+                continue
+            apply_metric_record(post, record)
+            after = {field: post.get(field) for field in METRIC_FIELDS}
+            refreshed += sum(1 for field in METRIC_FIELDS if before.get(field) != after.get(field))
+    return {"checked": checked, "refreshed_fields": refreshed}
+
+
+def verify_public_post_metrics(posts: list[dict[str, Any]], chrome_path: str | None = None, cache_path: Path | None = None) -> dict[str, Any]:
+    instagram = verify_instagram_posts(posts, chrome_path, cache_path)
+    ytdlp = verify_ytdlp_posts(posts)
+    for post in posts:
+        refresh_integrity_status(post)
+    return {"instagram": instagram, "ytdlp": ytdlp, "integrity": build_integrity_report(posts)}
+
+
 def dedupe_posts(posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     merged: dict[tuple[str, str], dict[str, Any]] = {}
-    source_rank = {"csv": 0, "supplement_docx": 1, "instagram_public_feed": 2, "tikwm_public_api": 2, "youtube_rss_public_page": 2}
+    source_rank = {
+        "csv": 0,
+        "supplement_docx": 1,
+        "youtube_rss_public_page": 1,
+        "instagram_public_feed": 2,
+        "tikwm_public_api": 2,
+        "youtube_public_page_fallback": 3,
+        "instagram_oembed_page_meta": 3,
+        "yt_dlp_public_page": 4,
+    }
     for post in posts:
         if not post.get("creator") or not post.get("platform"):
             continue
@@ -1158,9 +1395,11 @@ def build_docx(path: Path, campaign_name: str, start: date, end: date, roster, p
                         "N/A" if p.get("saves") is None else fmt_num(p.get("saves")),
                         "N/A" if p.get("shares") is None else fmt_num(p.get("shares")),
                         p.get("category") or category_for(p.get("title")),
+                        p.get("verification_status", "unverified"),
+                        clean_text(p.get("metric_sources"), 80),
                     ]
                 )
-            table_from_rows(doc, ["#", "Date", "Post Reference", "Views", "Likes", "Comments", "Saves", "Shares", "Category"], post_rows, fill="F2F2F2", size=6.8)
+            table_from_rows(doc, ["#", "Date", "Post Reference", "Views", "Likes", "Comments", "Saves", "Shares", "Category", "Verification", "Sources"], post_rows, fill="F2F2F2", size=6.4)
     doc.save(path)
 
 
@@ -1223,10 +1462,16 @@ def build_xlsx(path: Path, summaries, posts):
                     p["views"], p["likes"], "N/A" if p.get("comments") is None else p.get("comments"),
                     "N/A" if p.get("saves") is None else p.get("saves"),
                     "N/A" if p.get("shares") is None else p.get("shares"),
-                    p.get("category") or category_for(p.get("title")), (p["url"], p["url"]),
+                    p.get("category") or category_for(p.get("title")),
+                    p.get("verification_status", "unverified"),
+                    p.get("verified_metrics", ""),
+                    p.get("metric_sources", ""),
+                    p.get("verified_at", ""),
+                    p.get("integrity_notes", ""),
+                    (p["url"], p["url"]),
                 ]
             )
-        write_sheet(workbook, f"{platform} Posts", ["Creator", "Handle", "Date", "Post Type", "Caption/Title", "Views", "Likes", "Comments", "Saves", "Shares", "Category", "URL"], rows)
+        write_sheet(workbook, f"{platform} Posts", ["Creator", "Handle", "Date", "Post Type", "Caption/Title", "Views", "Likes", "Comments", "Saves", "Shares", "Category", "Verification", "Verified Metrics", "Metric Sources", "Verified At", "Integrity Notes", "URL"], rows)
     workbook.close()
 
 
@@ -1240,7 +1485,8 @@ def build_csv_exports(output_dir: Path, stem: str, summaries, posts) -> list[Pat
             f,
             fieldnames=[
                 "creator", "platform", "handle", "date", "post_type", "post_id", "title", "views",
-                "likes", "comments", "saves", "shares", "category", "url", "source",
+                "likes", "comments", "saves", "shares", "category", "verification_status",
+                "verified_metrics", "metric_sources", "verified_at", "integrity_notes", "url", "source",
             ],
         )
         writer.writeheader()
@@ -1260,6 +1506,11 @@ def build_csv_exports(output_dir: Path, stem: str, summaries, posts) -> list[Pat
                     "saves": "" if post.get("saves") is None else post.get("saves"),
                     "shares": "" if post.get("shares") is None else post.get("shares"),
                     "category": post.get("category"),
+                    "verification_status": post.get("verification_status", "unverified"),
+                    "verified_metrics": post.get("verified_metrics", ""),
+                    "metric_sources": post.get("metric_sources", ""),
+                    "verified_at": post.get("verified_at", ""),
+                    "integrity_notes": post.get("integrity_notes", ""),
                     "url": post.get("url"),
                     "source": post.get("_source", "public_scrape"),
                 }
@@ -1323,7 +1574,10 @@ def collect_data(config: RunConfig) -> dict[str, Any]:
     all_posts.extend(load_supplement_docx(config.supplemental_docx, config.start_date, config.end_date))
     posts = dedupe_posts(all_posts)
     if config.verify_instagram:
-        verify_instagram_posts(posts, config.chrome_path, config.output_dir / ".ig_verify_cache.json")
+        verify_public_post_metrics(posts, config.chrome_path, config.output_dir / ".ig_verify_cache.json")
+    else:
+        for post in posts:
+            refresh_integrity_status(post)
     summaries = build_creator_summaries(roster, posts, profiles_tt, profiles_ig, profiles_yt)
     return {
         "roster": roster,
@@ -1353,6 +1607,7 @@ def serialize_payload(data: dict[str, Any], config: RunConfig) -> dict[str, Any]
         "end_date": config.end_date.isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "platform_counts": {platform: sum(1 for p in data["posts"] if p["platform"] == platform) for platform in ["Instagram", "TikTok", "YouTube"]},
+        "integrity": build_integrity_report(data["posts"]),
         "posts": convert(data["posts"]),
         "summaries": convert(data["summaries"]),
         "roster": convert(data["roster"]),

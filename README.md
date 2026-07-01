@@ -136,10 +136,10 @@ Use this setup for a free hosted dashboard and recurring refreshes:
 4. In GitHub repo settings, allow Actions to read and write repository contents.
 5. Keep `.github/workflows/weekly-report.yml` enabled.
 
-The workflow refreshes `data/latest_snapshot.json` every 6 hours:
+The workflow refreshes `data/latest_snapshot.json` every 2 hours:
 
 ```yaml
-cron: "17 */6 * * *"
+cron: "17 */2 * * *"
 ```
 
 It also builds formal Friday report artifacts:
@@ -149,6 +149,24 @@ cron: "47 12 * * 5"
 ```
 
 When GitHub Actions commits a refreshed `data/latest_snapshot.json`, Streamlit redeploys the dashboard from the latest repo state.
+
+## Data Verification And Integrity
+
+Every post row carries:
+
+- `verification_status`
+- `verified_metrics`
+- `metric_sources`
+- `verified_at`
+- `integrity_notes`
+
+Platform verification rules:
+
+- YouTube: RSS discovers recent videos, then `yt-dlp` checks the live public page for views and likes. Comments stay `N/A` unless YouTube exposes a comment count.
+- TikTok: TikWM discovers account/post rows and returns views, likes, comments, saves, and shares. `yt-dlp` checks the live public post page as a second source when available.
+- Instagram: public feed rows are used when anonymous access is available. oEmbed/page meta verifies owner, caption, date, likes, and comments.
+
+The tool does not convert missing metrics into zero. A metric is treated as verified only when a public source returned that metric.
 
 ## Security Defaults
 
