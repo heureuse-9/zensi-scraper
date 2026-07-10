@@ -129,10 +129,37 @@ Direct public scrape remains primary during dedupe; supplement rows fill gaps.
 Creator/platform exports can include extra owner-only fields such as:
 
 ```text
-saves, shares, reposts, remixes
+saves, shares, reposts, remixes, remix_views
 ```
 
 Those fields are carried through to Word, Excel, CSV, and the dashboard when supplied. They are not guessed from public pages.
+
+## Owner API Metrics Without Studio Logging In
+
+The team should not log into creator accounts. For owner-only metrics, use one of these safe paths:
+
+- Creator authorizes the app/OAuth connection themselves.
+- Creator sends a platform export CSV/screenshot-derived CSV.
+- A manager/business account that already has authorized asset access provides a token.
+
+Supported secret/config inputs:
+
+```text
+INSTAGRAM_GRAPH_ACCESS_TOKEN
+INSTAGRAM_GRAPH_TOKENS_JSON
+INSTAGRAM_GRAPH_USER_IDS_JSON
+INSTAGRAM_GRAPH_VERSION
+YOUTUBE_ANALYTICS_ACCESS_TOKEN
+YOUTUBE_ANALYTICS_TOKENS_JSON
+```
+
+`INSTAGRAM_GRAPH_USER_IDS_JSON` maps handles to IG user IDs, for example:
+
+```json
+{"creator_handle": "17841400000000000"}
+```
+
+`INSTAGRAM_GRAPH_TOKENS_JSON` and `YOUTUBE_ANALYTICS_TOKENS_JSON` can map handles to per-creator tokens. If no per-handle token exists, the global token is used.
 
 ## Online Setup: Streamlit + GitHub Actions
 
@@ -171,13 +198,14 @@ Every post row carries:
 Platform verification rules:
 
 - YouTube: RSS discovers recent videos when available. If RSS fails, `yt-dlp` reads the public Shorts tab and each discovered Short is checked against the live public page. If `YOUTUBE_API_KEY` is set, the official YouTube Data API is also used for public statistics, especially comments.
+- YouTube owner metrics: if `YOUTUBE_ANALYTICS_ACCESS_TOKEN` or `YOUTUBE_ANALYTICS_TOKENS_JSON` is set, the YouTube Analytics API fills shares and net save-to-playlist activity. It also fills `remix_views`, which means views referred from remix links in Shorts. Exact remix count still needs a Studio export if YouTube does not expose it through the authorized API.
 - TikTok: TikWM discovers account/post rows and returns views, likes, comments, saves, and shares. `yt-dlp` checks the live public post page as a second source when available.
 - Instagram: public feed rows are used when anonymous access is available. oEmbed/page meta verifies owner, caption, date, likes, and comments.
-- Instagram saves, shares/reposts, and YouTube saves, shares, and Shorts remixes are owner-side analytics. They remain `N/A` with an `unavailable_metrics` note unless a creator export/API source supplies them.
+- Instagram owner metrics: if `INSTAGRAM_GRAPH_ACCESS_TOKEN` plus `INSTAGRAM_GRAPH_USER_IDS_JSON` are set, the Meta Graph API fills available saved, shares, reposts, views, likes, and comments counts from owner-authorized media fields.
 
 The tool does not convert missing metrics into zero. A metric is treated as verified only when a public source returned that metric.
 
-For better YouTube comment accuracy, set `YOUTUBE_API_KEY` in GitHub Actions secrets and Streamlit secrets. The app reads it without showing it in the frontend.
+For better YouTube comment accuracy, set `YOUTUBE_API_KEY` in GitHub Actions secrets and Streamlit secrets. For owner-only YouTube metrics, use OAuth access tokens, not an API key. The app reads secrets without showing them in the frontend.
 
 ## Security Defaults
 

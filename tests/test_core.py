@@ -14,10 +14,12 @@ from zensi_scraper.core import (
     load_csv_posts,
     mark_public_unavailable_metrics,
     metrics_from_ytdlp_info,
+    records_from_instagram_owner_media,
     serialize_payload,
     split_handles,
     weekly_window,
     write_snapshot,
+    youtube_analytics_records_from_rows,
     youtube_flat_entries_from_info,
 )
 
@@ -130,6 +132,46 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(entries[0]["post_id"], "abc123")
         self.assertEqual(entries[1]["post_id"], "def456")
         self.assertEqual(entries[0]["views"], 1700)
+
+    def test_instagram_owner_media_records_include_private_counts(self):
+        records = records_from_instagram_owner_media(
+            {
+                "data": [
+                    {
+                        "id": "1789",
+                        "permalink": "https://www.instagram.com/reel/abc123/",
+                        "caption": "Study reset",
+                        "timestamp": "2026-07-06T12:00:00+0000",
+                        "total_views_count": 1000,
+                        "total_like_count": 100,
+                        "total_comments_count": 10,
+                        "saved_count": 25,
+                        "shares_count": 4,
+                        "reposts_count": 2,
+                    }
+                ]
+            }
+        )
+        self.assertEqual(records["abc123"]["views"], 1000)
+        self.assertEqual(records["abc123"]["saves"], 25)
+        self.assertEqual(records["abc123"]["shares"], 4)
+        self.assertEqual(records["abc123"]["reposts"], 2)
+        self.assertIn("instagram_graph_owner_media", records["abc123"]["source"])
+
+    def test_youtube_owner_analytics_records_include_shares_saves_and_remix_views(self):
+        records = youtube_analytics_records_from_rows(
+            ["video", "views", "likes", "comments", "shares", "videosAddedToPlaylists", "videosRemovedFromPlaylists"],
+            [["tLcsrdjJJG4", 2200, 27, 0, 9, 11, 3]],
+        )
+        remix_records = youtube_analytics_records_from_rows(
+            ["video", "insightTrafficSourceType", "views"],
+            [["tLcsrdjJJG4", "VIDEO_REMIXES", 42]],
+        )
+        self.assertEqual(records["tLcsrdjJJG4"]["shares"], 9)
+        self.assertEqual(records["tLcsrdjJJG4"]["saves"], 8)
+        self.assertEqual(records["tLcsrdjJJG4"]["playlist_adds"], 11)
+        self.assertEqual(records["tLcsrdjJJG4"]["playlist_removes"], 3)
+        self.assertEqual(remix_records["tLcsrdjJJG4"]["remix_views"], 42)
 
     def test_private_platform_metrics_are_marked_unavailable_not_zero(self):
         post = {

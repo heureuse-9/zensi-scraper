@@ -35,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--output-stem")
     run.add_argument("--no-public-scrape", action="store_true")
     run.add_argument("--no-instagram-verify", action="store_true")
+    run.add_argument("--no-owner-api", action="store_true")
     run.add_argument("--no-csv", action="store_true")
     run.add_argument("--no-xlsx", action="store_true")
     run.add_argument("--no-docx", action="store_true")
@@ -50,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     refresh.add_argument("--date", help="Override run date, YYYY-MM-DD. Defaults to today.")
     refresh.add_argument("--lookback-days", type=int, default=14)
     refresh.add_argument("--no-instagram-verify", action="store_true")
+    refresh.add_argument("--no-owner-api", action="store_true")
 
     init = sub.add_parser("init-config", help="Write a starter config file.")
     init.add_argument("--path", default="config.json")
@@ -75,6 +77,8 @@ def config_from_args(args) -> RunConfig:
             config.scrape_public = False
         if args.no_instagram_verify:
             config.verify_instagram = False
+        if args.no_owner_api:
+            config.use_owner_api = False
         if args.no_csv:
             config.export_csv = False
         if args.no_xlsx:
@@ -102,6 +106,7 @@ def config_from_args(args) -> RunConfig:
         export_csv=not args.no_csv,
         export_xlsx=not args.no_xlsx,
         export_docx=not args.no_docx,
+        use_owner_api=not args.no_owner_api,
     )
 
 
@@ -123,6 +128,7 @@ def write_config(path: Path):
         "export_csv": True,
         "export_xlsx": True,
         "export_docx": True,
+        "use_owner_api": True,
     }
     path.write_text(json.dumps(sample, indent=2), encoding="utf-8")
     print(f"Wrote {path}")
@@ -176,6 +182,8 @@ def main(argv=None):
         config.export_docx = False
         if args.no_instagram_verify:
             config.verify_instagram = False
+        if args.no_owner_api:
+            config.use_owner_api = False
         data = collect_data(config)
         snapshot = write_snapshot(Path(args.snapshot), data, config)
         counts = {platform: sum(1 for p in data["posts"] if p["platform"] == platform) for platform in ["Instagram", "TikTok", "YouTube"]}
