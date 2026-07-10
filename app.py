@@ -50,7 +50,15 @@ def require_password():
 
 
 def hydrate_optional_env_secrets():
-    for name in ["YOUTUBE_API_KEY"]:
+    for name in [
+        "YOUTUBE_API_KEY",
+        "YOUTUBE_ANALYTICS_ACCESS_TOKEN",
+        "YOUTUBE_ANALYTICS_TOKENS_JSON",
+        "INSTAGRAM_GRAPH_ACCESS_TOKEN",
+        "INSTAGRAM_GRAPH_TOKENS_JSON",
+        "INSTAGRAM_GRAPH_USER_IDS_JSON",
+        "INSTAGRAM_GRAPH_VERSION",
+    ]:
         value = get_secret(name)
         if value and not os.environ.get(name):
             os.environ[name] = str(value)
@@ -75,6 +83,7 @@ def post_rows(posts):
                 "Shares": p.get("shares"),
                 "Reposts": p.get("reposts"),
                 "Remixes": p.get("remixes"),
+                "Remix Views": p.get("remix_views"),
                 "Category": p.get("category"),
                 "Verification": p.get("verification_status", "unverified"),
                 "Verified Metrics": p.get("verified_metrics", ""),
@@ -167,7 +176,7 @@ def render_dashboard(payload, key_prefix):
 
     filtered = apply_filters(df)
     metric_df = filtered.copy()
-    for col in ["Views", "Likes", "Comments", "Saves", "Shares", "Reposts", "Remixes"]:
+    for col in ["Views", "Likes", "Comments", "Saves", "Shares", "Reposts", "Remixes", "Remix Views"]:
         metric_df[col] = pd.to_numeric(metric_df[col], errors="coerce").fillna(0)
 
     chart_cols = st.columns(2)
@@ -189,7 +198,8 @@ def render_dashboard(payload, key_prefix):
             - YouTube and TikTok posts are discovered from public account feeds, then re-checked with `yt-dlp` against the live public post page.
             - TikTok rows keep the TikWM public API metrics for saves/shares and use `yt-dlp` as an independent public-page check for views/likes/comments.
             - YouTube rows use RSS for discovery, `yt-dlp` for live public page metrics, and the official YouTube Data API for comments when `YOUTUBE_API_KEY` is configured.
-            - YouTube saves, shares, and Shorts remixes are owner-side YouTube Studio/Analytics metrics. They stay `N/A` unless a creator export/API source supplies them.
+            - YouTube Analytics OAuth can verify shares, comments, and save-to-playlist activity. It can also report `remix_views`, meaning views referred from remix links in Shorts.
+            - Exact YouTube remix-count and some Studio-only metrics stay `N/A` unless a creator export/API source supplies them.
             - Instagram rows use public feed rows when anonymous access is available, then oEmbed/page meta for owner, caption, date, likes, and comments.
             - Instagram saves, shares/reposts, and other insight-only metrics stay `N/A` unless a creator insights/API export supplies them.
             - A metric is counted as verified only when a public source returned that metric. Missing extraction is shown as partial/unverified, never silently converted to zero.

@@ -14,5 +14,6 @@
   "output_stem": "",
   "export_csv": true,
   "export_xlsx": true,
-  "export_docx": true
+  "export_docx": true,
+  "use_owner_api": true
 }

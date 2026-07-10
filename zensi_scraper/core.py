@@ -39,7 +39,16 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-METRIC_FIELDS = ["views", "likes", "comments", "saves", "shares", "reposts", "remixes"]
+METRIC_FIELDS = [
+    "views",
+    "likes",
+    "comments",
+    "saves",
+    "shares",
+    "reposts",
+    "remixes",
+    "remix_views",
+]
 PLATFORM_REQUIRED_METRICS = {
     "Instagram": ["views", "likes", "comments"],
     "TikTok": ["views", "likes", "comments", "saves", "shares"],
@@ -56,6 +65,10 @@ PUBLIC_UNAVAILABLE_METRICS = {
         "shares": "YouTube Studio/Analytics owner export required",
         "remixes": "YouTube Studio/Analytics owner export required",
     },
+}
+OWNER_API_SOURCES = {
+    "Instagram": "instagram_graph_owner_media",
+    "YouTube": "youtube_analytics_owner_api",
 }
 
 IG_HEADERS = {
@@ -90,6 +103,7 @@ class RunConfig:
     export_csv: bool = True
     export_xlsx: bool = True
     export_docx: bool = True
+    use_owner_api: bool = True
 
 
 def parse_date(value: str | date) -> date:
@@ -121,6 +135,7 @@ def config_from_json(path: str | Path, require_dates: bool = True) -> RunConfig:
         export_csv=bool(data.get("export_csv", True)),
         export_xlsx=bool(data.get("export_xlsx", True)),
         export_docx=bool(data.get("export_docx", True)),
+        use_owner_api=bool(data.get("use_owner_api", True)),
     )
 
 
@@ -224,6 +239,40 @@ def row_metric(row: dict[str, Any], *names: str) -> int | None:
     return parse_num(row_value(row, *names))
 
 
+def load_jsonish_env(name: str) -> dict[str, Any]:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return {}
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+
+
+def lookup_env_mapping(name: str, key: str) -> Any:
+    mapping = load_jsonish_env(name)
+    if not mapping:
+        return None
+    normalized = key.strip().lstrip("@").lower()
+    for raw_key, value in mapping.items():
+        if str(raw_key).strip().lstrip("@").lower() == normalized:
+            return value
+    return None
+
+
+def owner_api_token(platform: str, handle: str) -> str | None:
+    if platform == "Instagram":
+        return lookup_env_mapping("INSTAGRAM_GRAPH_TOKENS_JSON", handle) or os.environ.get("INSTAGRAM_GRAPH_ACCESS_TOKEN")
+    if platform == "YouTube":
+        return lookup_env_mapping("YOUTUBE_ANALYTICS_TOKENS_JSON", handle) or os.environ.get("YOUTUBE_ANALYTICS_ACCESS_TOKEN")
+    return None
+
+
+def instagram_owner_user_id(handle: str) -> str | None:
+    value = lookup_env_mapping("INSTAGRAM_GRAPH_USER_IDS_JSON", handle)
+    return str(value) if value else None
+
+
 def required_metrics_for(post: dict[str, Any]) -> list[str]:
     return PLATFORM_REQUIRED_METRICS.get(post.get("platform"), ["views", "likes", "comments"])
 
@@ -264,6 +313,8 @@ def apply_metric_record(post: dict[str, Any], record: dict[str, Any]) -> dict[st
             post[field] = value
     verified = set(split_csvish(post.get("verified_metrics")))
     deltas = split_csvish(post.get("_integrity_deltas"))
+    unavailable = split_csvish(post.get("unavailable_metrics"))
+    availability_notes = [p.strip() for p in re.split(r";\s*", str(post.get("metric_availability_notes") or "")) if p.strip()]
     for field in METRIC_FIELDS:
         if field not in record:
             continue
@@ -281,7 +332,11 @@ def apply_metric_record(post: dict[str, Any], record: dict[str, Any]) -> dict[st
                 pass
         post[field] = value
         verified.add(field)
+        unavailable = [item for item in unavailable if item != field]
+        availability_notes = [item for item in availability_notes if not item.startswith(f"{field}:")]
     post["verified_metrics"] = ", ".join(sorted(verified))
+    post["unavailable_metrics"] = ", ".join(unavailable)
+    post["metric_availability_notes"] = "; ".join(availability_notes)
     post["_integrity_deltas"] = ", ".join(dict.fromkeys(deltas))
     refresh_integrity_status(post)
     return post
@@ -298,6 +353,12 @@ def mark_public_unavailable_metrics(post: dict[str, Any]) -> dict[str, Any]:
     for field, reason in rules.items():
         if field in verified or post.get(field) not in [None, "", "N/A"]:
             continue
+        if platform == "YouTube" and field in {"shares", "saves"} and owner_api_token("YouTube", post.get("handle", "")):
+            reason = "YouTube Analytics OAuth token configured but metric not returned for this post/window"
+        if platform == "YouTube" and field == "remixes" and owner_api_token("YouTube", post.get("handle", "")):
+            reason = "YouTube Analytics returns remix_views traffic; exact remix count still needs Studio export"
+        if platform == "Instagram" and field in {"saves", "shares", "reposts"} and owner_api_token("Instagram", post.get("handle", "")):
+            reason = "Instagram Graph owner token configured but metric not returned for this post/window"
         if field not in unavailable:
             unavailable.append(field)
         note = f"{field}: {reason}"
@@ -547,10 +608,11 @@ def load_csv_posts(videos_csv: Path | None, start: date, end: date) -> list[dict
                 "likes": row_metric(row, "likes", "like_count"),
                 "comments": row_metric(row, "comments", "comment_count"),
                 "saves": row_metric(row, "saves", "saved", "save_count", "collects", "collect_count"),
-                "shares": row_metric(row, "shares", "share_count", "sends"),
-                "reposts": row_metric(row, "reposts", "repost_count", "re-shares", "reshares"),
-                "remixes": row_metric(row, "remixes", "remix_count", "shorts_remixes"),
-            }
+            "shares": row_metric(row, "shares", "share_count", "sends"),
+            "reposts": row_metric(row, "reposts", "repost_count", "re-shares", "reshares"),
+            "remixes": row_metric(row, "remixes", "remix_count", "shorts_remixes"),
+            "remix_views": row_metric(row, "remix_views", "remix traffic views", "remix_traffic_views"),
+        }
             apply_metric_record(post, {k: v for k, v in record.items() if v is not None})
             mark_public_unavailable_metrics(post)
             posts.append(post)
@@ -596,6 +658,7 @@ def parse_engagement(text: str, platform: str) -> dict[str, Any]:
         "shares": find("Shares"),
         "reposts": find("Reposts"),
         "remixes": find("Remixes"),
+        "remix_views": find("Remix Views"),
     }
 
 
@@ -768,6 +831,7 @@ def scrape_instagram_posts(creator: str, handle: str, start: date, end: date, ch
                 "shares": None,
                 "reposts": None,
                 "remixes": None,
+                "remix_views": None,
                 "category": category_for(caption),
                 "url": post_url("Instagram", handle, code),
                 "_source": "instagram_public_feed",
@@ -847,6 +911,7 @@ def scrape_tiktok(creator: str, handle: str, start: date, end: date) -> tuple[di
                 "shares": None,
                 "reposts": None,
                 "remixes": None,
+                "remix_views": None,
                 "category": category_for(title),
                 "url": post_url("TikTok", handle, pid),
                 "_source": "tikwm_public_api",
@@ -1003,6 +1068,118 @@ def fetch_youtube_api_video_stats(video_id: str, api_key: str | None = None) -> 
         "comments": parse_num(stats.get("commentCount")),
     }
     return {k: v for k, v in record.items() if v not in [None, "", "N/A"]}
+
+
+def youtube_analytics_records_from_rows(headers: list[str], rows: list[list[Any]]) -> dict[str, dict[str, Any]]:
+    metric_map = {
+        "video": "post_id",
+        "views": "views",
+        "likes": "likes",
+        "comments": "comments",
+        "shares": "shares",
+        "videosAddedToPlaylists": "playlist_adds",
+        "videosRemovedFromPlaylists": "playlist_removes",
+    }
+    records: dict[str, dict[str, Any]] = {}
+    for row in rows or []:
+        values = dict(zip(headers, row))
+        vid = values.get("video")
+        if not vid:
+            continue
+        record = records.setdefault(
+            str(vid),
+            {"source": OWNER_API_SOURCES["YouTube"], "post_id": str(vid)},
+        )
+        if values.get("insightTrafficSourceType") == "VIDEO_REMIXES":
+            record["remix_views"] = parse_num(values.get("views")) or 0
+            continue
+        for header, field in metric_map.items():
+            if header not in values or field == "post_id":
+                continue
+            parsed = parse_num(values.get(header))
+            if parsed is not None:
+                record[field] = parsed
+        adds = record.get("playlist_adds")
+        removes = record.get("playlist_removes")
+        if adds is not None or removes is not None:
+            record["saves"] = max(int(adds or 0) - int(removes or 0), 0)
+    return records
+
+
+def youtube_analytics_query(
+    token: str,
+    start: date,
+    end: date,
+    metrics: str,
+    dimensions: str = "video",
+    filters: str | None = None,
+) -> dict[str, Any]:
+    params = {
+        "ids": "channel==MINE",
+        "startDate": start.isoformat(),
+        "endDate": end.isoformat(),
+        "metrics": metrics,
+        "dimensions": dimensions,
+        "maxResults": 500,
+    }
+    if filters:
+        params["filters"] = filters
+    response = requests.get(
+        "https://youtubeanalytics.googleapis.com/v2/reports",
+        params=params,
+        headers={"Authorization": f"Bearer {token}", **HEADERS},
+        timeout=25,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def fetch_youtube_owner_analytics_records(
+    handle: str,
+    video_ids: list[str],
+    start: date,
+    end: date,
+) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+    token = owner_api_token("YouTube", handle)
+    if not token or not video_ids:
+        return {}, {"checked": 0, "refreshed_fields": 0, "skipped": "missing YOUTUBE_ANALYTICS_ACCESS_TOKEN/YOUTUBE_ANALYTICS_TOKENS_JSON or videos"}
+    records: dict[str, dict[str, Any]] = {}
+    errors = []
+    checked = 0
+    for i in range(0, len(video_ids), 200):
+        chunk = [vid for vid in video_ids[i : i + 200] if vid]
+        if not chunk:
+            continue
+        video_filter = "video==" + ",".join(chunk)
+        try:
+            payload = youtube_analytics_query(
+                token,
+                start,
+                end,
+                "views,likes,comments,shares,videosAddedToPlaylists,videosRemovedFromPlaylists",
+                filters=video_filter,
+            )
+            headers = [h.get("name") for h in payload.get("columnHeaders") or []]
+            records.update(youtube_analytics_records_from_rows(headers, payload.get("rows") or []))
+            checked += len(chunk)
+        except Exception as exc:
+            errors.append(clean_text(str(exc), 180))
+        try:
+            remix_payload = youtube_analytics_query(
+                token,
+                start,
+                end,
+                "views",
+                dimensions="video,insightTrafficSourceType",
+                filters=f"{video_filter};insightTrafficSourceType==VIDEO_REMIXES",
+            )
+            headers = [h.get("name") for h in remix_payload.get("columnHeaders") or []]
+            remix_records = youtube_analytics_records_from_rows(headers, remix_payload.get("rows") or [])
+            for vid, record in remix_records.items():
+                records.setdefault(vid, {"source": OWNER_API_SOURCES["YouTube"], "post_id": vid}).update(record)
+        except Exception as exc:
+            errors.append(clean_text(str(exc), 180))
+    return records, {"checked": checked, "refreshed_fields": 0, "errors": errors}
 
 
 def youtube_flat_entries_from_info(info: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1171,6 +1348,7 @@ def scrape_youtube(creator: str, handle: str, start: date, end: date) -> tuple[d
             "shares": None,
             "reposts": None,
             "remixes": None,
+            "remix_views": None,
             "category": category_for(title),
             "url": post_url("YouTube", handle, vid),
             "_source": "youtube_rss_public_page",
@@ -1251,6 +1429,119 @@ def parse_instagram_meta(description: str) -> dict[str, Any]:
         "date": datetime.strptime(match.group(4), "%B %d, %Y").date(),
         "title": clean_text(match.group(5).rstrip(". "), 220),
     }
+
+
+def date_from_api_timestamp(value: Any) -> date | None:
+    if not value:
+        return None
+    text = str(value).replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(text).date()
+    except ValueError:
+        try:
+            return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+        except ValueError:
+            return None
+
+
+def records_from_instagram_owner_media(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    records: dict[str, dict[str, Any]] = {}
+    for item in payload.get("data") or []:
+        permalink = item.get("permalink") or ""
+        code = item.get("shortcode") or post_id_from_url(permalink)
+        if not code:
+            continue
+        record = {
+            "source": OWNER_API_SOURCES["Instagram"],
+            "source_url": permalink,
+            "post_id": code,
+            "title": clean_text(item.get("caption"), 220),
+            "date": date_from_api_timestamp(item.get("timestamp")),
+            "views": first_present(item.get("total_views_count"), item.get("views"), item.get("plays")),
+            "likes": first_present(item.get("total_like_count"), item.get("like_count")),
+            "comments": first_present(item.get("total_comments_count"), item.get("comments_count")),
+            "saves": item.get("saved_count"),
+            "shares": item.get("shares_count"),
+            "reposts": item.get("reposts_count"),
+        }
+        records[code] = {k: v for k, v in record.items() if v not in [None, "", "N/A"]}
+    return records
+
+
+def records_from_instagram_insights(payload: dict[str, Any], post_id: str) -> dict[str, Any]:
+    aliases = {
+        "saved": "saves",
+        "saves": "saves",
+        "shares": "shares",
+        "reposts": "reposts",
+        "reposts_count": "reposts",
+        "views": "views",
+        "plays": "views",
+        "likes": "likes",
+        "comments": "comments",
+    }
+    record: dict[str, Any] = {"source": "instagram_graph_owner_insights", "post_id": post_id}
+    for metric in payload.get("data") or []:
+        name = aliases.get(str(metric.get("name") or ""))
+        values = metric.get("values") or []
+        value = values[-1].get("value") if values and isinstance(values[-1], dict) else None
+        if name and value is not None:
+            record[name] = value
+    return record
+
+
+def fetch_instagram_owner_media_records(handle: str, start: date, end: date) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+    token = owner_api_token("Instagram", handle)
+    user_id = instagram_owner_user_id(handle)
+    if not token or not user_id:
+        return {}, {"checked": 0, "refreshed_fields": 0, "skipped": "missing INSTAGRAM_GRAPH_ACCESS_TOKEN and/or INSTAGRAM_GRAPH_USER_IDS_JSON"}
+    version = os.environ.get("INSTAGRAM_GRAPH_VERSION", "v25.0")
+    base = f"https://graph.facebook.com/{version}/{user_id}/media"
+    fields = ",".join(
+        [
+            "id",
+            "caption",
+            "permalink",
+            "shortcode",
+            "timestamp",
+            "media_product_type",
+            "like_count",
+            "comments_count",
+            "saved_count",
+            "shares_count",
+            "reposts_count",
+            "total_like_count",
+            "total_comments_count",
+            "total_views_count",
+        ]
+    )
+    params = {
+        "fields": fields,
+        "limit": 100,
+        "since": int(datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc).timestamp()),
+        "until": int(datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc).timestamp()),
+        "access_token": token,
+    }
+    records: dict[str, dict[str, Any]] = {}
+    checked = 0
+    errors = []
+    url = base
+    while url:
+        try:
+            response = requests.get(url, params=params if url == base else None, timeout=25)
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as exc:
+            errors.append(clean_text(str(exc), 180))
+            break
+        page_records = records_from_instagram_owner_media(payload)
+        records.update(page_records)
+        checked += len(page_records)
+        url = ((payload.get("paging") or {}).get("next") or "")
+        params = None
+        if checked >= 250:
+            break
+    return records, {"checked": checked, "refreshed_fields": 0, "errors": errors}
 
 
 def fetch_instagram_page_meta(url: str, chrome_path: str | None = None) -> dict[str, Any]:
@@ -1354,13 +1645,76 @@ def verify_ytdlp_posts(posts: list[dict[str, Any]]) -> dict[str, int]:
     return {"checked": checked, "refreshed_fields": refreshed}
 
 
-def verify_public_post_metrics(posts: list[dict[str, Any]], chrome_path: str | None = None, cache_path: Path | None = None) -> dict[str, Any]:
+def verify_instagram_owner_api_posts(posts: list[dict[str, Any]]) -> dict[str, Any]:
+    checked = 0
+    refreshed = 0
+    errors = []
+    by_handle: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for post in posts:
+        if post.get("platform") == "Instagram" and post.get("handle"):
+            by_handle[post["handle"]].append(post)
+    for handle, handle_posts in by_handle.items():
+        start = min(p["date"] for p in handle_posts if p.get("date"))
+        end = max(p["date"] for p in handle_posts if p.get("date"))
+        records, meta = fetch_instagram_owner_media_records(handle, start, end)
+        checked += meta.get("checked", 0)
+        errors.extend(meta.get("errors") or [])
+        for post in handle_posts:
+            key = post.get("post_id") or post_id_from_url(post.get("url", ""))
+            record = records.get(key)
+            if not record:
+                continue
+            before = {field: post.get(field) for field in METRIC_FIELDS}
+            apply_metric_record(post, record)
+            after = {field: post.get(field) for field in METRIC_FIELDS}
+            refreshed += sum(1 for field in METRIC_FIELDS if before.get(field) != after.get(field))
+    return {"checked": checked, "refreshed_fields": refreshed, "errors": errors}
+
+
+def verify_youtube_owner_api_posts(posts: list[dict[str, Any]]) -> dict[str, Any]:
+    checked = 0
+    refreshed = 0
+    errors = []
+    by_handle: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for post in posts:
+        if post.get("platform") == "YouTube" and post.get("handle") and post.get("post_id"):
+            by_handle[post["handle"]].append(post)
+    for handle, handle_posts in by_handle.items():
+        start = min(p["date"] for p in handle_posts if p.get("date"))
+        end = max(p["date"] for p in handle_posts if p.get("date"))
+        records, meta = fetch_youtube_owner_analytics_records(handle, [p["post_id"] for p in handle_posts], start, end)
+        checked += meta.get("checked", 0)
+        errors.extend(meta.get("errors") or [])
+        for post in handle_posts:
+            record = records.get(post.get("post_id"))
+            if not record:
+                continue
+            before = {field: post.get(field) for field in METRIC_FIELDS}
+            apply_metric_record(post, record)
+            after = {field: post.get(field) for field in METRIC_FIELDS}
+            refreshed += sum(1 for field in METRIC_FIELDS if before.get(field) != after.get(field))
+    return {"checked": checked, "refreshed_fields": refreshed, "errors": errors}
+
+
+def verify_owner_api_post_metrics(posts: list[dict[str, Any]]) -> dict[str, Any]:
+    instagram = verify_instagram_owner_api_posts(posts)
+    youtube = verify_youtube_owner_api_posts(posts)
+    return {"instagram": instagram, "youtube": youtube}
+
+
+def verify_public_post_metrics(
+    posts: list[dict[str, Any]],
+    chrome_path: str | None = None,
+    cache_path: Path | None = None,
+    use_owner_api: bool = True,
+) -> dict[str, Any]:
     instagram = verify_instagram_posts(posts, chrome_path, cache_path)
     ytdlp = verify_ytdlp_posts(posts)
+    owner_api = verify_owner_api_post_metrics(posts) if use_owner_api else {"skipped": True}
     for post in posts:
         mark_public_unavailable_metrics(post)
         refresh_integrity_status(post)
-    return {"instagram": instagram, "ytdlp": ytdlp, "integrity": build_integrity_report(posts)}
+    return {"instagram": instagram, "ytdlp": ytdlp, "owner_api": owner_api, "integrity": build_integrity_report(posts)}
 
 
 def dedupe_posts(posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1376,6 +1730,9 @@ def dedupe_posts(posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
         "instagram_oembed_page_meta": 3,
         "yt_dlp_public_page": 4,
         "creator_export_csv": 5,
+        "instagram_graph_owner_media": 6,
+        "instagram_graph_owner_insights": 6,
+        "youtube_analytics_owner_api": 6,
     }
     for post in posts:
         if not post.get("creator") or not post.get("platform"):
@@ -1416,6 +1773,7 @@ def summarize(posts: list[dict[str, Any]]) -> dict[str, int]:
         "shares": sum(int(p.get("shares") or 0) for p in posts if p.get("shares") is not None),
         "reposts": sum(int(p.get("reposts") or 0) for p in posts if p.get("reposts") is not None),
         "remixes": sum(int(p.get("remixes") or 0) for p in posts if p.get("remixes") is not None),
+        "remix_views": sum(int(p.get("remix_views") or 0) for p in posts if p.get("remix_views") is not None),
     }
 
 
@@ -1478,6 +1836,7 @@ def build_creator_summaries(roster, posts, tt_profiles, ig_profiles, yt_profiles
                 "yt_total_saves": yt["saves"],
                 "yt_total_shares": yt["shares"],
                 "yt_total_remixes": yt["remixes"],
+                "yt_total_remix_views": yt["remix_views"],
                 "yt_videos": yt_profile_videos or yt["posts"],
                 "yt_avg_views": safe_div(yt["views"], yt["posts"]),
                 "yt_avg_likes": safe_div(yt["likes"], yt["posts"]),
@@ -1586,7 +1945,7 @@ def build_docx(path: Path, campaign_name: str, start: date, end: date, roster, p
     summary_headers = [
         "Creator Name", "Handles", "TT Followers", "TT Total Likes", "TT Videos", "IG Followers", "IG Posts",
         "IG Agg Likes", "IG Agg Comments", "IG Saves", "IG Shares", "IG Reposts", "IG Agg Views", "IG Avg Likes", "IG Eng Rate %",
-        "YT Subscribers", "YT Total Views", "YT Total Likes", "YT Total Comments", "YT Saves", "YT Shares", "YT Remixes",
+        "YT Subscribers", "YT Total Views", "YT Total Likes", "YT Total Comments", "YT Saves", "YT Shares", "YT Remixes", "YT Remix Views",
         "YT Videos", "YT Avg Views", "YT Avg Likes", "YT Eng Rate %", "Total Audience", "Top Platform",
     ]
     summary_rows = []
@@ -1599,6 +1958,7 @@ def build_docx(path: Path, campaign_name: str, start: date, end: date, roster, p
                 fmt_num(r["ig_agg_views"]), "N/A" if r["ig_avg_likes"] is None else f"{r['ig_avg_likes']:.1f}",
                 fmt_pct(r["ig_eng_rate"]), fmt_num(r["yt_subscribers"]), fmt_num(r["yt_total_views"]), fmt_num(r["yt_total_likes"]),
                 fmt_num(r.get("yt_total_comments")), fmt_num(r.get("yt_total_saves")), fmt_num(r.get("yt_total_shares")), fmt_num(r.get("yt_total_remixes")),
+                fmt_num(r.get("yt_total_remix_views")),
                 fmt_num(r["yt_videos"]), "N/A" if r["yt_avg_views"] is None else f"{r['yt_avg_views']:.0f}",
                 "N/A" if r["yt_avg_likes"] is None else f"{r['yt_avg_likes']:.1f}", fmt_pct(r["yt_eng_rate"]),
                 fmt_num(r["total_audience"]), r["top_platform"],
@@ -1617,10 +1977,10 @@ def build_docx(path: Path, campaign_name: str, start: date, end: date, roster, p
                 platform, fmt_num(s["posts"]), fmt_num(s["views"]), fmt_num(round(safe_div(s["views"], s["posts"]) or 0)),
                 fmt_num(median(vals) if vals else 0), fmt_num(s["likes"]), metric_total_or_na(rows, "comments"),
                 metric_total_or_na(rows, "saves"), metric_total_or_na(rows, "shares"), metric_total_or_na(rows, "reposts"),
-                metric_total_or_na(rows, "remixes"),
+                metric_total_or_na(rows, "remixes"), metric_total_or_na(rows, "remix_views"),
             ]
         )
-    table_from_rows(doc, ["Platform", "Posts", "Views/Plays", "Avg", "Median", "Likes", "Comments", "Saves", "Shares", "Reposts", "Remixes"], platform_rows, fill="EAF4E1")
+    table_from_rows(doc, ["Platform", "Posts", "Views/Plays", "Avg", "Median", "Likes", "Comments", "Saves", "Shares", "Reposts", "Remixes", "Remix Views"], platform_rows, fill="EAF4E1")
 
     doc.add_heading("Creator Ranking", level=1)
     rank_rows = []
@@ -1670,13 +2030,14 @@ def build_docx(path: Path, campaign_name: str, start: date, end: date, roster, p
                         "N/A" if p.get("shares") is None else fmt_num(p.get("shares")),
                         "N/A" if p.get("reposts") is None else fmt_num(p.get("reposts")),
                         "N/A" if p.get("remixes") is None else fmt_num(p.get("remixes")),
+                        "N/A" if p.get("remix_views") is None else fmt_num(p.get("remix_views")),
                         p.get("category") or category_for(p.get("title")),
                         p.get("verification_status", "unverified"),
                         clean_text(p.get("unavailable_metrics"), 60),
                         clean_text(p.get("metric_sources"), 80),
                     ]
                 )
-            table_from_rows(doc, ["#", "Date", "Post Reference", "Views", "Likes", "Comments", "Saves", "Shares", "Reposts", "Remixes", "Category", "Verification", "Unavailable", "Sources"], post_rows, fill="F2F2F2", size=5.8)
+            table_from_rows(doc, ["#", "Date", "Post Reference", "Views", "Likes", "Comments", "Saves", "Shares", "Reposts", "Remixes", "Remix Views", "Category", "Verification", "Unavailable", "Sources"], post_rows, fill="F2F2F2", size=5.6)
     doc.save(path)
 
 
@@ -1711,7 +2072,7 @@ def build_xlsx(path: Path, summaries, posts):
     summary_headers = [
         "Creator Name", "Handles", "TT Followers", "TT Total Likes", "TT Videos", "IG Followers", "IG Posts",
         "IG Agg Likes", "IG Agg Comments", "IG Saves", "IG Shares", "IG Reposts", "IG Agg Views", "IG Avg Likes", "IG Eng Rate %",
-        "YT Subscribers", "YT Total Views", "YT Total Likes", "YT Total Comments", "YT Saves", "YT Shares", "YT Remixes",
+        "YT Subscribers", "YT Total Views", "YT Total Likes", "YT Total Comments", "YT Saves", "YT Shares", "YT Remixes", "YT Remix Views",
         "YT Videos", "YT Avg Views", "YT Avg Likes", "YT Eng Rate %", "Total Audience", "Top Platform",
     ]
     write_sheet(workbook, "Cross Platform Summary", summary_headers, [
@@ -1721,7 +2082,7 @@ def build_xlsx(path: Path, summaries, posts):
             r.get("ig_agg_saves"), r.get("ig_agg_shares"), r.get("ig_agg_reposts"), r["ig_agg_views"],
             r["ig_avg_likes"], r["ig_eng_rate"],
             r["yt_subscribers"], r["yt_total_views"], r["yt_total_likes"], r.get("yt_total_comments"),
-            r.get("yt_total_saves"), r.get("yt_total_shares"), r.get("yt_total_remixes"), r["yt_videos"],
+            r.get("yt_total_saves"), r.get("yt_total_shares"), r.get("yt_total_remixes"), r.get("yt_total_remix_views"), r["yt_videos"],
             r["yt_avg_views"], r["yt_avg_likes"], r["yt_eng_rate"], r["total_audience"], r["top_platform"],
         ]
         for r in summaries
@@ -1731,8 +2092,8 @@ def build_xlsx(path: Path, summaries, posts):
         rows = [p for p in posts if p["platform"] == platform]
         s = summarize(rows)
         vals = [p.get("views") or 0 for p in rows]
-        platform_rows.append([platform, s["posts"], s["views"], round(safe_div(s["views"], s["posts"]) or 0), median(vals) if vals else 0, s["likes"], metric_total_or_na(rows, "comments"), metric_total_or_na(rows, "saves"), metric_total_or_na(rows, "shares"), metric_total_or_na(rows, "reposts"), metric_total_or_na(rows, "remixes")])
-    write_sheet(workbook, "Platform Snapshot", ["Platform", "Posts", "Views/Plays", "Avg", "Median", "Likes", "Comments", "Saves", "Shares", "Reposts", "Remixes"], platform_rows)
+        platform_rows.append([platform, s["posts"], s["views"], round(safe_div(s["views"], s["posts"]) or 0), median(vals) if vals else 0, s["likes"], metric_total_or_na(rows, "comments"), metric_total_or_na(rows, "saves"), metric_total_or_na(rows, "shares"), metric_total_or_na(rows, "reposts"), metric_total_or_na(rows, "remixes"), metric_total_or_na(rows, "remix_views")])
+    write_sheet(workbook, "Platform Snapshot", ["Platform", "Posts", "Views/Plays", "Avg", "Median", "Likes", "Comments", "Saves", "Shares", "Reposts", "Remixes", "Remix Views"], platform_rows)
     for platform in ["Instagram", "TikTok", "YouTube"]:
         rows = []
         for p in sorted([x for x in posts if x["platform"] == platform], key=lambda x: (x["creator"].lower(), -(x.get("views") or 0))):
@@ -1744,6 +2105,7 @@ def build_xlsx(path: Path, summaries, posts):
                     "N/A" if p.get("shares") is None else p.get("shares"),
                     "N/A" if p.get("reposts") is None else p.get("reposts"),
                     "N/A" if p.get("remixes") is None else p.get("remixes"),
+                    "N/A" if p.get("remix_views") is None else p.get("remix_views"),
                     p.get("category") or category_for(p.get("title")),
                     p.get("verification_status", "unverified"),
                     p.get("verified_metrics", ""),
@@ -1754,7 +2116,7 @@ def build_xlsx(path: Path, summaries, posts):
                     (p["url"], p["url"]),
                 ]
             )
-        write_sheet(workbook, f"{platform} Posts", ["Creator", "Handle", "Date", "Post Type", "Caption/Title", "Views", "Likes", "Comments", "Saves", "Shares", "Reposts", "Remixes", "Category", "Verification", "Verified Metrics", "Unavailable Metrics", "Metric Sources", "Verified At", "Integrity Notes", "URL"], rows)
+        write_sheet(workbook, f"{platform} Posts", ["Creator", "Handle", "Date", "Post Type", "Caption/Title", "Views", "Likes", "Comments", "Saves", "Shares", "Reposts", "Remixes", "Remix Views", "Category", "Verification", "Verified Metrics", "Unavailable Metrics", "Metric Sources", "Verified At", "Integrity Notes", "URL"], rows)
     workbook.close()
 
 
@@ -1768,7 +2130,7 @@ def build_csv_exports(output_dir: Path, stem: str, summaries, posts) -> list[Pat
             f,
             fieldnames=[
                 "creator", "platform", "handle", "date", "post_type", "post_id", "title", "views",
-                "likes", "comments", "saves", "shares", "reposts", "remixes", "category", "verification_status",
+                "likes", "comments", "saves", "shares", "reposts", "remixes", "remix_views", "category", "verification_status",
                 "verified_metrics", "unavailable_metrics", "metric_sources", "verified_at", "integrity_notes", "url", "source",
             ],
         )
@@ -1790,6 +2152,7 @@ def build_csv_exports(output_dir: Path, stem: str, summaries, posts) -> list[Pat
                     "shares": "" if post.get("shares") is None else post.get("shares"),
                     "reposts": "" if post.get("reposts") is None else post.get("reposts"),
                     "remixes": "" if post.get("remixes") is None else post.get("remixes"),
+                    "remix_views": "" if post.get("remix_views") is None else post.get("remix_views"),
                     "category": post.get("category"),
                     "verification_status": post.get("verification_status", "unverified"),
                     "verified_metrics": post.get("verified_metrics", ""),
@@ -1808,7 +2171,7 @@ def build_csv_exports(output_dir: Path, stem: str, summaries, posts) -> list[Pat
         headers = [
             "creator", "handles", "tt_followers", "tt_total_likes", "tt_videos", "ig_followers", "ig_posts",
             "ig_agg_likes", "ig_agg_comments", "ig_agg_saves", "ig_agg_shares", "ig_agg_reposts", "ig_agg_views", "ig_avg_likes", "ig_eng_rate",
-            "yt_subscribers", "yt_total_views", "yt_total_likes", "yt_total_comments", "yt_total_saves", "yt_total_shares", "yt_total_remixes", "yt_videos", "yt_avg_views",
+            "yt_subscribers", "yt_total_views", "yt_total_likes", "yt_total_comments", "yt_total_saves", "yt_total_shares", "yt_total_remixes", "yt_total_remix_views", "yt_videos", "yt_avg_views",
             "yt_avg_likes", "yt_eng_rate", "total_audience", "top_platform",
         ]
         writer = csv.DictWriter(f, fieldnames=headers)
@@ -1819,7 +2182,7 @@ def build_csv_exports(output_dir: Path, stem: str, summaries, posts) -> list[Pat
 
     platform_path = output_dir / f"{stem}_platform_summary.csv"
     with platform_path.open("w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=["platform", "posts", "views", "avg_views", "median_views", "likes", "comments", "saves", "shares", "reposts", "remixes"])
+        writer = csv.DictWriter(f, fieldnames=["platform", "posts", "views", "avg_views", "median_views", "likes", "comments", "saves", "shares", "reposts", "remixes", "remix_views"])
         writer.writeheader()
         for platform in ["Instagram", "TikTok", "YouTube"]:
             rows = [p for p in posts if p["platform"] == platform]
@@ -1838,6 +2201,7 @@ def build_csv_exports(output_dir: Path, stem: str, summaries, posts) -> list[Pat
                     "shares": "" if not any(p.get("shares") is not None for p in rows) else s["shares"],
                     "reposts": "" if not any(p.get("reposts") is not None for p in rows) else s["reposts"],
                     "remixes": "" if not any(p.get("remixes") is not None for p in rows) else s["remixes"],
+                    "remix_views": "" if not any(p.get("remix_views") is not None for p in rows) else s["remix_views"],
                 }
             )
     paths.append(platform_path)
@@ -1862,7 +2226,7 @@ def collect_data(config: RunConfig) -> dict[str, Any]:
     all_posts.extend(load_supplement_docx(config.supplemental_docx, config.start_date, config.end_date))
     posts = dedupe_posts(all_posts)
     if config.verify_instagram:
-        verify_public_post_metrics(posts, config.chrome_path, config.output_dir / ".ig_verify_cache.json")
+        verify_public_post_metrics(posts, config.chrome_path, config.output_dir / ".ig_verify_cache.json", config.use_owner_api)
     else:
         for post in posts:
             mark_public_unavailable_metrics(post)
