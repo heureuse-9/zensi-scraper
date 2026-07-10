@@ -49,6 +49,13 @@ def require_password():
     st.stop()
 
 
+def hydrate_optional_env_secrets():
+    for name in ["YOUTUBE_API_KEY"]:
+        value = get_secret(name)
+        if value and not os.environ.get(name):
+            os.environ[name] = str(value)
+
+
 def platform_counts(posts):
     return {platform: sum(1 for p in posts if p["platform"] == platform) for platform in ["Instagram", "TikTok", "YouTube"]}
 
@@ -66,9 +73,12 @@ def post_rows(posts):
                 "Comments": p.get("comments"),
                 "Saves": p.get("saves"),
                 "Shares": p.get("shares"),
+                "Reposts": p.get("reposts"),
+                "Remixes": p.get("remixes"),
                 "Category": p.get("category"),
                 "Verification": p.get("verification_status", "unverified"),
                 "Verified Metrics": p.get("verified_metrics", ""),
+                "Unavailable Metrics": p.get("unavailable_metrics", ""),
                 "Metric Sources": p.get("metric_sources", ""),
                 "Verified At": p.get("verified_at", ""),
                 "Integrity Notes": p.get("integrity_notes", ""),
@@ -103,7 +113,15 @@ def apply_filters(df):
     if min_views:
         filtered = filtered[(pd.to_numeric(filtered["Views"], errors="coerce").fillna(0) >= min_views)]
     if search:
-        haystack = (filtered["Category"].fillna("") + " " + filtered["Post"].fillna("") + " " + filtered["Integrity Notes"].fillna("")).str.lower()
+        haystack = (
+            filtered["Category"].fillna("")
+            + " "
+            + filtered["Post"].fillna("")
+            + " "
+            + filtered["Unavailable Metrics"].fillna("")
+            + " "
+            + filtered["Integrity Notes"].fillna("")
+        ).str.lower()
         filtered = filtered[haystack.str.contains(search.lower(), regex=False)]
     return filtered
 
@@ -149,7 +167,7 @@ def render_dashboard(payload, key_prefix):
 
     filtered = apply_filters(df)
     metric_df = filtered.copy()
-    for col in ["Views", "Likes", "Comments", "Saves", "Shares"]:
+    for col in ["Views", "Likes", "Comments", "Saves", "Shares", "Reposts", "Remixes"]:
         metric_df[col] = pd.to_numeric(metric_df[col], errors="coerce").fillna(0)
 
     chart_cols = st.columns(2)
@@ -170,8 +188,10 @@ def render_dashboard(payload, key_prefix):
             """
             - YouTube and TikTok posts are discovered from public account feeds, then re-checked with `yt-dlp` against the live public post page.
             - TikTok rows keep the TikWM public API metrics for saves/shares and use `yt-dlp` as an independent public-page check for views/likes/comments.
-            - YouTube rows use RSS for discovery and `yt-dlp` for live views/likes; comments stay unverified unless YouTube exposes a comment count.
+            - YouTube rows use RSS for discovery, `yt-dlp` for live public page metrics, and the official YouTube Data API for comments when `YOUTUBE_API_KEY` is configured.
+            - YouTube saves, shares, and Shorts remixes are owner-side YouTube Studio/Analytics metrics. They stay `N/A` unless a creator export/API source supplies them.
             - Instagram rows use public feed rows when anonymous access is available, then oEmbed/page meta for owner, caption, date, likes, and comments.
+            - Instagram saves, shares/reposts, and other insight-only metrics stay `N/A` unless a creator insights/API export supplies them.
             - A metric is counted as verified only when a public source returned that metric. Missing extraction is shown as partial/unverified, never silently converted to zero.
             """
         )
@@ -191,6 +211,7 @@ def render_dashboard(payload, key_prefix):
 
 st.set_page_config(page_title="Zensi UGC Analytics", layout="wide")
 require_password()
+hydrate_optional_env_secrets()
 st.title("Zensi UGC Analytics")
 st.caption("Direct public-account analytics with row-level source verification.")
 

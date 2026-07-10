@@ -77,7 +77,7 @@ python -m zensi_scraper run-weekly --config config.json
 Refresh only the Streamlit snapshot:
 
 ```powershell
-python -m zensi_scraper refresh-cache --config config.json --snapshot data/latest_snapshot.json
+python -m zensi_scraper refresh-cache --config config.json --snapshot data/latest_snapshot.json --lookback-days 7
 ```
 
 Run a custom date window:
@@ -126,6 +126,14 @@ If a platform blocks anonymous public scraping or you want to compare against in
 
 Direct public scrape remains primary during dedupe; supplement rows fill gaps.
 
+Creator/platform exports can include extra owner-only fields such as:
+
+```text
+saves, shares, reposts, remixes
+```
+
+Those fields are carried through to Word, Excel, CSV, and the dashboard when supplied. They are not guessed from public pages.
+
 ## Online Setup: Streamlit + GitHub Actions
 
 Use this setup for a free hosted dashboard and recurring refreshes:
@@ -136,7 +144,7 @@ Use this setup for a free hosted dashboard and recurring refreshes:
 4. In GitHub repo settings, allow Actions to read and write repository contents.
 5. Keep `.github/workflows/weekly-report.yml` enabled.
 
-The workflow refreshes `data/latest_snapshot.json` every 2 hours:
+The workflow refreshes the last complete 7-day `data/latest_snapshot.json` every 2 hours:
 
 ```yaml
 cron: "17 */2 * * *"
@@ -162,11 +170,14 @@ Every post row carries:
 
 Platform verification rules:
 
-- YouTube: RSS discovers recent videos, then `yt-dlp` checks the live public page for views and likes. Comments stay `N/A` unless YouTube exposes a comment count.
+- YouTube: RSS discovers recent videos when available. If RSS fails, `yt-dlp` reads the public Shorts tab and each discovered Short is checked against the live public page. If `YOUTUBE_API_KEY` is set, the official YouTube Data API is also used for public statistics, especially comments.
 - TikTok: TikWM discovers account/post rows and returns views, likes, comments, saves, and shares. `yt-dlp` checks the live public post page as a second source when available.
 - Instagram: public feed rows are used when anonymous access is available. oEmbed/page meta verifies owner, caption, date, likes, and comments.
+- Instagram saves, shares/reposts, and YouTube saves, shares, and Shorts remixes are owner-side analytics. They remain `N/A` with an `unavailable_metrics` note unless a creator export/API source supplies them.
 
 The tool does not convert missing metrics into zero. A metric is treated as verified only when a public source returned that metric.
+
+For better YouTube comment accuracy, set `YOUTUBE_API_KEY` in GitHub Actions secrets and Streamlit secrets. The app reads it without showing it in the frontend.
 
 ## Security Defaults
 
@@ -205,5 +216,5 @@ Your teammate can run it locally with Streamlit, or push it to GitHub and connec
 - No creator login is used.
 - Instagram anonymous scraping is rate-limited. The tool can scrape public profile and post meta, but feed rows may sometimes return zero.
 - TikTok public endpoints can change. Validate against platform exports periodically.
-- YouTube RSS is stable for recent videos, but likes can be unavailable on some pages.
+- YouTube public pages expose views and likes consistently, but comment counts may be unavailable without the official API. Shares, saves, and remixes are YouTube Studio/Analytics metrics, not public page metrics.
 - GitHub scheduled workflows are cron-based but can be delayed on shared infrastructure, so avoid treating the exact minute as guaranteed.

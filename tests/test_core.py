@@ -2,18 +2,23 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from zensi_scraper.core import (
     RunConfig,
     apply_metric_record,
     build_exports_from_payload,
     build_integrity_report,
+    fetch_youtube_api_video_stats,
     load_creator_registry,
+    load_csv_posts,
+    mark_public_unavailable_metrics,
     metrics_from_ytdlp_info,
     serialize_payload,
     split_handles,
     weekly_window,
     write_snapshot,
+    youtube_flat_entries_from_info,
 )
 
 
@@ -87,6 +92,96 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(post["verification_status"], "partial")
         self.assertIn("comments", post["integrity_notes"])
         self.assertIn("yt_dlp_public_page", post["metric_sources"])
+
+    def test_youtube_data_api_stats_verify_comments_without_fake_private_metrics(self):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "items": [
+                {
+                    "id": "tLcsrdjJJG4",
+                    "snippet": {"title": "Well ok so my phone just betrayed me", "publishedAt": "2026-06-24T12:00:00Z"},
+                    "statistics": {"viewCount": "2200", "likeCount": "27", "commentCount": "0", "favoriteCount": "0"},
+                }
+            ]
+        }
+        with patch("zensi_scraper.core.requests.get", return_value=response) as get:
+            stats = fetch_youtube_api_video_stats("tLcsrdjJJG4", "api-key")
+
+        self.assertEqual(stats["views"], 2200)
+        self.assertEqual(stats["likes"], 27)
+        self.assertEqual(stats["comments"], 0)
+        self.assertNotIn("shares", stats)
+        self.assertNotIn("saves", stats)
+        self.assertNotIn("remixes", stats)
+        get.assert_called_once()
+
+    def test_youtube_flat_entries_from_info_normalizes_shorts_tab_results(self):
+        entries = youtube_flat_entries_from_info(
+            {
+                "entries": [
+                    {"id": "abc123", "title": "First short", "url": "https://www.youtube.com/shorts/abc123", "view_count": 1700},
+                    {"title": "Missing id", "url": "https://www.youtube.com/shorts/def456"},
+                    {"id": "", "url": ""},
+                ]
+            }
+        )
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0]["post_id"], "abc123")
+        self.assertEqual(entries[1]["post_id"], "def456")
+        self.assertEqual(entries[0]["views"], 1700)
+
+    def test_private_platform_metrics_are_marked_unavailable_not_zero(self):
+        post = {
+            "creator": "Creator One",
+            "platform": "Instagram",
+            "handle": "creatorone",
+            "date": date(2026, 7, 6),
+            "post_type": "Reel",
+            "post_id": "abc123",
+            "title": "Study reset",
+            "views": 1000,
+            "likes": 100,
+            "comments": 10,
+            "saves": None,
+            "shares": None,
+            "reposts": None,
+            "remixes": None,
+            "url": "https://www.instagram.com/reel/abc123/",
+        }
+        mark_public_unavailable_metrics(post)
+        self.assertIsNone(post["saves"])
+        self.assertIsNone(post["shares"])
+        self.assertIsNone(post["reposts"])
+        self.assertIn("saves", post["unavailable_metrics"])
+        self.assertIn("creator insights/API export", post["integrity_notes"])
+
+    def test_creator_export_csv_can_supply_ig_and_youtube_private_metrics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "analytics.csv"
+            path.write_text(
+                "\n".join(
+                    [
+                        "creator,platform,date,url,views,likes,comments,saves,shares,reposts,remixes",
+                        "Creator One,Instagram,2026-07-06,https://www.instagram.com/reel/abc123/,1000,100,10,25,4,2,",
+                        "Creator Two,YouTube,2026-07-06,https://www.youtube.com/shorts/tLcsrdjJJG4,2200,27,0,8,3,,1",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            posts = load_csv_posts(path, date(2026, 7, 1), date(2026, 7, 7))
+
+        ig = next(p for p in posts if p["platform"] == "Instagram")
+        yt = next(p for p in posts if p["platform"] == "YouTube")
+        self.assertEqual(ig["saves"], 25)
+        self.assertEqual(ig["shares"], 4)
+        self.assertEqual(ig["reposts"], 2)
+        self.assertEqual(yt["comments"], 0)
+        self.assertEqual(yt["saves"], 8)
+        self.assertEqual(yt["shares"], 3)
+        self.assertEqual(yt["remixes"], 1)
+        self.assertEqual(ig["verification_status"], "verified")
+        self.assertIn("creator_export_csv", ig["metric_sources"])
 
     def test_integrity_report_counts_statuses(self):
         report = build_integrity_report(

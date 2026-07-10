@@ -27,7 +27,9 @@ jobs:
           pip install -r requirements.txt
 
       - name: Refresh latest Streamlit snapshot
-        run: python -m zensi_scraper refresh-cache --config config.github.json --snapshot data/latest_snapshot.json --lookback-days 14
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: python -m zensi_scraper refresh-cache --config config.github.json --snapshot data/latest_snapshot.json --lookback-days 7
 
       - name: Commit latest snapshot
         run: |
@@ -54,6 +56,8 @@ jobs:
           pip install -r requirements.txt
 
       - name: Build weekly report
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: python -m zensi_scraper run-weekly --config config.github.json
 
       - name: Upload reports
