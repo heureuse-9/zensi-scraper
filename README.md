@@ -142,6 +142,8 @@ The team should not log into creator accounts. For owner-only metrics, use one o
 - Creator sends a platform export CSV/screenshot-derived CSV.
 - A manager/business account that already has authorized asset access provides a token.
 
+If you do not want any login or OAuth flow at all, use the creator export path. In the Streamlit app, open `No-Login Owner Metrics Import`, download the CSV template, fill it from the creator's own analytics export/screenshot, and upload it during a manual refresh. The scraper still discovers public posts itself; the import only fills private fields such as IG saves/shares/reposts and YouTube shares/save-to-playlist/remix fields.
+
 Supported secret/config inputs:
 
 ```text

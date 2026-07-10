@@ -239,6 +239,67 @@ def row_metric(row: dict[str, Any], *names: str) -> int | None:
     return parse_num(row_value(row, *names))
 
 
+OWNER_METRICS_TEMPLATE_HEADERS = [
+    "creator",
+    "platform",
+    "date",
+    "url",
+    "views",
+    "likes",
+    "comments",
+    "saves",
+    "shares",
+    "reposts",
+    "remixes",
+    "remix_views",
+    "caption",
+    "notes",
+]
+
+
+def owner_metrics_csv_template() -> str:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(OWNER_METRICS_TEMPLATE_HEADERS)
+    writer.writerow(
+        [
+            "Creator Name",
+            "Instagram",
+            "2026-07-09",
+            "https://www.instagram.com/reel/SHORTCODE/",
+            "1000",
+            "100",
+            "10",
+            "25",
+            "4",
+            "2",
+            "",
+            "",
+            "Caption or post label",
+            "Paste from creator insights/export. No account login required by studio.",
+        ]
+    )
+    writer.writerow(
+        [
+            "Creator Name",
+            "YouTube",
+            "2026-07-09",
+            "https://www.youtube.com/shorts/VIDEOID",
+            "2200",
+            "27",
+            "0",
+            "8",
+            "3",
+            "",
+            "1",
+            "42",
+            "Short title",
+            "remix_views means views referred from remix links if available.",
+        ]
+    )
+    return buffer.getvalue()
+
+
 def load_jsonish_env(name: str) -> dict[str, Any]:
     value = os.environ.get(name, "").strip()
     if not value:
