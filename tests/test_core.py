@@ -14,6 +14,7 @@ from zensi_scraper.core import (
     load_csv_posts,
     mark_public_unavailable_metrics,
     metrics_from_ytdlp_info,
+    owner_metrics_csv_template,
     records_from_instagram_owner_media,
     serialize_payload,
     split_handles,
@@ -224,6 +225,14 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(yt["remixes"], 1)
         self.assertEqual(ig["verification_status"], "verified")
         self.assertIn("creator_export_csv", ig["metric_sources"])
+
+    def test_owner_metrics_template_has_no_login_private_metric_columns(self):
+        template = owner_metrics_csv_template()
+        header = template.splitlines()[0].split(",")
+        for column in ["creator", "platform", "date", "url", "saves", "shares", "reposts", "remixes", "remix_views"]:
+            self.assertIn(column, header)
+        self.assertIn("Instagram", template)
+        self.assertIn("YouTube", template)
 
     def test_integrity_report_counts_statuses(self):
         report = build_integrity_report(

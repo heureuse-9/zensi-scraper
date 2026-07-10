@@ -1,4 +1,5 @@
 import hmac
+import hmac
 import os
 import tempfile
 from pathlib import Path
@@ -13,6 +14,7 @@ from zensi_scraper.core import (
     collect_data,
     deserialize_payload,
     load_snapshot,
+    owner_metrics_csv_template,
     parse_date,
     serialize_payload,
     weekly_window,
@@ -245,7 +247,14 @@ with st.sidebar:
 
 roster_file = st.file_uploader("Optional creator roster JSON override", type=["json"])
 creators_csv = st.file_uploader("Optional creator roster CSV import", type=["csv"])
-supplemental_csvs = st.file_uploader("Optional analytics CSV supplements", type=["csv"], accept_multiple_files=True)
+with st.expander("No-Login Owner Metrics Import", expanded=False):
+    st.download_button(
+        "Download owner metrics CSV template",
+        owner_metrics_csv_template().encode("utf-8-sig"),
+        file_name="zensi_owner_metrics_template.csv",
+        mime="text/csv",
+    )
+    supplemental_csvs = st.file_uploader("Upload creator exports or filled owner metrics CSVs", type=["csv"], accept_multiple_files=True)
 
 if st.button("Refresh From Public Accounts", type="primary"):
     with tempfile.TemporaryDirectory() as tmp:
