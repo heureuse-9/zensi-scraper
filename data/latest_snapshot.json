@@ -1,21 +1,21 @@
 {
   "campaign_name": "Zensi",
-  "start_date": "2026-07-17",
-  "end_date": "2026-07-23",
-  "updated_at": "2026-07-24T23:18:42Z",
+  "start_date": "2026-07-18",
+  "end_date": "2026-07-24",
+  "updated_at": "2026-07-25T03:42:10Z",
   "platform_counts": {
     "Instagram": 0,
     "TikTok": 0,
-    "YouTube": 3
+    "YouTube": 2
   },
   "integrity": {
-    "total_posts": 3,
+    "total_posts": 2,
     "statuses": {
-      "unverified": 3
+      "unverified": 2
     },
     "platforms": {
       "YouTube": {
-        "unverified": 3
+        "unverified": 2
       }
     }
   },
@@ -40,7 +40,7 @@
       "url": "https://www.youtube.com/shorts/lCHDATMQMhU",
       "_source": "youtube_rss_public_page",
       "metric_sources": "youtube_rss_public_page, yt_dlp_public_page",
-      "verified_at": "2026-07-24T23:18:38Z",
+      "verified_at": "2026-07-25T03:42:05Z",
       "source_url": "https://www.youtube.com/shorts/lCHDATMQMhU",
       "verified_metrics": "",
       "unavailable_metrics": "saves, shares, remixes",
@@ -70,7 +70,7 @@
       "url": "https://www.youtube.com/shorts/6YbDVyu8b28",
       "_source": "youtube_rss_public_page",
       "metric_sources": "youtube_rss_public_page, yt_dlp_public_page",
-      "verified_at": "2026-07-24T23:18:40Z",
+      "verified_at": "2026-07-25T03:42:07Z",
       "source_url": "https://www.youtube.com/shorts/6YbDVyu8b28",
       "verified_metrics": "",
       "unavailable_metrics": "saves, shares, remixes",
@@ -79,45 +79,15 @@
       "verification_status": "unverified",
       "integrity_notes": "Missing verified metrics: views, likes, comments; Public unavailable metrics: saves: YouTube Studio/Analytics owner export required; shares: YouTube Studio/Analytics owner export required; remixes: YouTube Studio/Analytics owner export required; ERROR: [youtube] 6YbDVyu8b28: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp for how to...",
       "_integrity_errors": "ERROR: [youtube] 6YbDVyu8b28: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp for how to..."
-    },
-    {
-      "creator": "Enes",
-      "platform": "YouTube",
-      "handle": "zensiapp",
-      "date": "2026-07-17",
-      "post_type": "Short",
-      "post_id": "N10YrcDETbo",
-      "title": "phones in a stack. present. #zensi #presence",
-      "views": null,
-      "likes": null,
-      "comments": null,
-      "saves": null,
-      "shares": null,
-      "reposts": null,
-      "remixes": null,
-      "remix_views": null,
-      "category": "Screen-time reset",
-      "url": "https://www.youtube.com/shorts/N10YrcDETbo",
-      "_source": "youtube_rss_public_page",
-      "metric_sources": "youtube_rss_public_page, yt_dlp_public_page",
-      "verified_at": "2026-07-24T23:18:40Z",
-      "source_url": "https://www.youtube.com/shorts/N10YrcDETbo",
-      "verified_metrics": "",
-      "unavailable_metrics": "saves, shares, remixes",
-      "metric_availability_notes": "saves: YouTube Studio/Analytics owner export required; shares: YouTube Studio/Analytics owner export required; remixes: YouTube Studio/Analytics owner export required",
-      "_integrity_deltas": "",
-      "verification_status": "unverified",
-      "integrity_notes": "Missing verified metrics: views, likes, comments; Public unavailable metrics: saves: YouTube Studio/Analytics owner export required; shares: YouTube Studio/Analytics owner export required; remixes: YouTube Studio/Analytics owner export required; ERROR: [youtube] N10YrcDETbo: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp for how to...",
-      "_integrity_errors": "ERROR: [youtube] N10YrcDETbo: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp for how to..."
     }
   ],
   "summaries": [
     {
       "creator": "Enes",
       "handles": "TT: @zensi.app | IG: @zensiapp | YT: @zensiapp",
-      "tt_followers": null,
-      "tt_total_likes": null,
-      "tt_videos": null,
+      "tt_followers": 66,
+      "tt_total_likes": 3068,
+      "tt_videos": 84,
       "ig_followers": null,
       "ig_posts": null,
       "ig_agg_likes": 0,
@@ -136,11 +106,11 @@
       "yt_total_shares": 0,
       "yt_total_remixes": 0,
       "yt_total_remix_views": 0,
-      "yt_videos": 3,
+      "yt_videos": 2,
       "yt_avg_views": 0.0,
       "yt_avg_likes": 0.0,
       "yt_eng_rate": null,
-      "total_audience": 0,
+      "total_audience": 66,
       "top_platform": "Instagram"
     }
   ],
