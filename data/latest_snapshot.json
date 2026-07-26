@@ -2,7 +2,7 @@
   "campaign_name": "Zensi",
   "start_date": "2026-07-19",
   "end_date": "2026-07-25",
-  "updated_at": "2026-07-26T10:14:32Z",
+  "updated_at": "2026-07-26T11:39:33Z",
   "platform_counts": {
     "Instagram": 0,
     "TikTok": 0,
@@ -40,7 +40,7 @@
       "url": "https://www.youtube.com/shorts/lCHDATMQMhU",
       "_source": "youtube_rss_public_page",
       "metric_sources": "youtube_rss_public_page, yt_dlp_public_page",
-      "verified_at": "2026-07-26T10:14:32Z",
+      "verified_at": "2026-07-26T11:39:28Z",
       "source_url": "https://www.youtube.com/shorts/lCHDATMQMhU",
       "verified_metrics": "",
       "unavailable_metrics": "saves, shares, remixes",
@@ -55,9 +55,9 @@
     {
       "creator": "Enes",
       "handles": "TT: @zensi.app | IG: @zensiapp | YT: @zensiapp",
-      "tt_followers": null,
-      "tt_total_likes": null,
-      "tt_videos": null,
+      "tt_followers": 66,
+      "tt_total_likes": 3068,
+      "tt_videos": 84,
       "ig_followers": null,
       "ig_posts": null,
       "ig_agg_likes": 0,
@@ -80,7 +80,7 @@
       "yt_avg_views": 0.0,
       "yt_avg_likes": 0.0,
       "yt_eng_rate": null,
-      "total_audience": 0,
+      "total_audience": 66,
       "top_platform": "Instagram"
     }
   ],
