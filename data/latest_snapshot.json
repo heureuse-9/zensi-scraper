@@ -1,21 +1,21 @@
 {
   "campaign_name": "Zensi",
-  "start_date": "2026-07-18",
-  "end_date": "2026-07-24",
-  "updated_at": "2026-07-25T23:15:26Z",
+  "start_date": "2026-07-19",
+  "end_date": "2026-07-25",
+  "updated_at": "2026-07-26T03:59:12Z",
   "platform_counts": {
     "Instagram": 0,
     "TikTok": 0,
-    "YouTube": 2
+    "YouTube": 1
   },
   "integrity": {
-    "total_posts": 2,
+    "total_posts": 1,
     "statuses": {
-      "unverified": 2
+      "unverified": 1
     },
     "platforms": {
       "YouTube": {
-        "unverified": 2
+        "unverified": 1
       }
     }
   },
@@ -40,7 +40,7 @@
       "url": "https://www.youtube.com/shorts/lCHDATMQMhU",
       "_source": "youtube_rss_public_page",
       "metric_sources": "youtube_rss_public_page, yt_dlp_public_page",
-      "verified_at": "2026-07-25T23:15:23Z",
+      "verified_at": "2026-07-26T03:59:08Z",
       "source_url": "https://www.youtube.com/shorts/lCHDATMQMhU",
       "verified_metrics": "",
       "unavailable_metrics": "saves, shares, remixes",
@@ -49,36 +49,6 @@
       "verification_status": "unverified",
       "integrity_notes": "Missing verified metrics: views, likes, comments; Public unavailable metrics: saves: YouTube Studio/Analytics owner export required; shares: YouTube Studio/Analytics owner export required; remixes: YouTube Studio/Analytics owner export required; ERROR: [youtube] lCHDATMQMhU: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp for how to...",
       "_integrity_errors": "ERROR: [youtube] lCHDATMQMhU: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp for how to..."
-    },
-    {
-      "creator": "Enes",
-      "platform": "YouTube",
-      "handle": "zensiapp",
-      "date": "2026-07-18",
-      "post_type": "Short",
-      "post_id": "6YbDVyu8b28",
-      "title": "the pose almost outlived me. #zensi #screentime",
-      "views": null,
-      "likes": null,
-      "comments": null,
-      "saves": null,
-      "shares": null,
-      "reposts": null,
-      "remixes": null,
-      "remix_views": null,
-      "category": "Screen-time reset",
-      "url": "https://www.youtube.com/shorts/6YbDVyu8b28",
-      "_source": "youtube_rss_public_page",
-      "metric_sources": "youtube_rss_public_page, yt_dlp_public_page",
-      "verified_at": "2026-07-25T23:15:24Z",
-      "source_url": "https://www.youtube.com/shorts/6YbDVyu8b28",
-      "verified_metrics": "",
-      "unavailable_metrics": "saves, shares, remixes",
-      "metric_availability_notes": "saves: YouTube Studio/Analytics owner export required; shares: YouTube Studio/Analytics owner export required; remixes: YouTube Studio/Analytics owner export required",
-      "_integrity_deltas": "",
-      "verification_status": "unverified",
-      "integrity_notes": "Missing verified metrics: views, likes, comments; Public unavailable metrics: saves: YouTube Studio/Analytics owner export required; shares: YouTube Studio/Analytics owner export required; remixes: YouTube Studio/Analytics owner export required; ERROR: [youtube] 6YbDVyu8b28: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp for how to...",
-      "_integrity_errors": "ERROR: [youtube] 6YbDVyu8b28: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp for how to..."
     }
   ],
   "summaries": [
@@ -106,7 +76,7 @@
       "yt_total_shares": 0,
       "yt_total_remixes": 0,
       "yt_total_remix_views": 0,
-      "yt_videos": 2,
+      "yt_videos": 1,
       "yt_avg_views": 0.0,
       "yt_avg_likes": 0.0,
       "yt_eng_rate": null,
